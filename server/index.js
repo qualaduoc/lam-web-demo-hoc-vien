@@ -30,8 +30,8 @@ const supabaseAdmin = (supabaseUrl && supabaseServiceKey && !supabaseUrl.include
 // Fallback In-Memory Database Store
 let dbStore = {
   users: [
-    { id: 'u_admin', username: 'admin', fullName: 'Thầy Nguyễn Văn Được', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=TeacherDuoc', role: 'admin', gradeLevel: 4, totalXp: 1500, streakDays: 15 },
-    { id: 'u_student1', username: 'hieu_lop4', fullName: 'Nguyễn Trung Hiếu', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hieu123', role: 'student', gradeLevel: 4, totalXp: 850, streakDays: 7 }
+    { id: 'u_admin', email: 'admin@edugame.local', fullName: 'Thầy Nguyễn Văn Được', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=TeacherDuoc', role: 'admin', gradeLevel: 4, totalXp: 1500, streakDays: 15 },
+    { id: 'u_student1', email: 'hieu_lop4@edugame.local', fullName: 'Nguyễn Trung Hiếu', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hieu123', role: 'student', gradeLevel: 4, totalXp: 850, streakDays: 7 }
   ],
   subjects: [
     { id: 1, code: 'MATH', name: 'Toán Học', icon: 'Calculator', colorTheme: 'blue', description: 'Số học, Phép tính, Phân số, Hình học và Đo lường SGK' },
@@ -61,45 +61,43 @@ let dbStore = {
 
 // 1. ĐĂNG KÝ TÀI KHOẢN HỌC SINH MỚI (BỎ QUA RATE LIMIT)
 app.post('/api/v1/auth/register', async (req, res) => {
-  const { username, password, fullName, gradeLevel } = req.body;
+  const { username, email, password, fullName, gradeLevel } = req.body;
+  const rawInput = email || username;
 
-  if (!username || !password || !fullName) {
-    return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ Tên đăng nhập, Mật khẩu và Họ tên!' });
+  if (!rawInput || !password || !fullName) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ Email đăng nhập, Mật khẩu và Họ tên!' });
   }
 
   if (password.length < 6) {
     return res.status(400).json({ success: false, error: 'Mật khẩu phải có ít nhất 6 ký tự!' });
   }
 
-  const cleanInput = username.trim().toLowerCase();
-  const syntheticEmail = cleanInput.includes('@')
+  const cleanInput = rawInput.trim().toLowerCase();
+  const finalEmail = cleanInput.includes('@')
     ? cleanInput
     : `${cleanInput.replace(/[^a-z0-9._-]/g, '')}@edugame.local`;
-  const finalUsername = cleanInput;
 
   if (supabaseAdmin) {
     try {
       const { data: existingUser } = await supabaseAdmin
         .from('profiles')
-        .select('username')
-        .eq('username', finalUsername)
+        .select('email')
+        .eq('email', finalEmail)
         .maybeSingle();
 
       if (existingUser) {
-        return res.status(400).json({ success: false, error: 'Tên đăng nhập / Email này đã được sử dụng!' });
+        return res.status(400).json({ success: false, error: 'Email đăng nhập này đã được sử dụng!' });
       }
 
-      // Dùng Supabase Admin API để BỎ QUA RATE LIMIT & BỎ QUA GỬI EMAIL XÁC NHẬN
       let authUser;
       let sessionToken = null;
 
       if (supabaseAdmin.auth && supabaseAdmin.auth.admin) {
         const { data: adminAuth, error: adminError } = await supabaseAdmin.auth.admin.createUser({
-          email: syntheticEmail,
+          email: finalEmail,
           password: password,
           email_confirm: true,
           user_metadata: {
-            username: finalUsername,
             full_name: fullName,
             grade_level: parseInt(gradeLevel || '4')
           }
@@ -114,7 +112,7 @@ app.post('/api/v1/auth/register', async (req, res) => {
         // Đăng nhập lấy session token
         if (supabase) {
           const { data: signInData } = await supabase.auth.signInWithPassword({
-            email: syntheticEmail,
+            email: finalEmail,
             password: password
           });
           sessionToken = signInData?.session?.access_token || null;
@@ -122,11 +120,10 @@ app.post('/api/v1/auth/register', async (req, res) => {
       } else {
         // Fallback SignUp thông thường
         const { data: normalAuth, error: normalError } = await supabase.auth.signUp({
-          email: syntheticEmail,
+          email: finalEmail,
           password: password,
           options: {
             data: {
-              username: finalUsername,
               full_name: fullName,
               grade_level: parseInt(gradeLevel || '4')
             }
@@ -141,12 +138,12 @@ app.post('/api/v1/auth/register', async (req, res) => {
       }
 
       // Tạo record public.profiles
-      const profileRole = finalUsername === 'nguyenthanhduocathy@gmail.com' ? 'admin' : 'student';
+      const profileRole = finalEmail === 'nguyenthanhduocathy@gmail.com' ? 'admin' : 'student';
       const profileData = {
         id: authUser.id,
-        username: finalUsername,
+        email: finalEmail,
         full_name: fullName,
-        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalEmail)}`,
         role: profileRole,
         grade_level: parseInt(gradeLevel || '4'),
         total_xp: 0,
@@ -161,7 +158,7 @@ app.post('/api/v1/auth/register', async (req, res) => {
         data: {
           user: {
             id: authUser.id,
-            username: finalUsername,
+            email: finalEmail,
             fullName: fullName,
             avatarUrl: profileData.avatar_url,
             role: profileRole,
@@ -180,17 +177,17 @@ app.post('/api/v1/auth/register', async (req, res) => {
   }
 
   // Memory Fallback
-  const existing = dbStore.users.find(u => u.username === finalUsername);
+  const existing = dbStore.users.find(u => u.email === finalEmail);
   if (existing) {
-    return res.status(400).json({ success: false, error: 'Tên đăng nhập này đã tồn tại!' });
+    return res.status(400).json({ success: false, error: 'Email đăng nhập này đã tồn tại!' });
   }
 
-  const mockRole = finalUsername === 'nguyenthanhduocathy@gmail.com' ? 'admin' : 'student';
+  const mockRole = finalEmail === 'nguyenthanhduocathy@gmail.com' ? 'admin' : 'student';
   const newUser = {
     id: 'u_' + Date.now(),
-    username: finalUsername,
+    email: finalEmail,
     fullName,
-    avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
+    avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalEmail)}`,
     role: mockRole,
     gradeLevel: parseInt(gradeLevel || '4'),
     totalXp: 0,
@@ -208,27 +205,27 @@ app.post('/api/v1/auth/register', async (req, res) => {
 
 // 2. ĐĂNG NHẬP
 app.post('/api/v1/auth/login', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, email, password } = req.body;
+  const rawInput = email || username;
 
-  if (!username || !password) {
-    return res.status(400).json({ success: false, error: 'Vui lòng nhập Tên đăng nhập và Mật khẩu!' });
+  if (!rawInput || !password) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập Email đăng nhập và Mật khẩu!' });
   }
 
-  const cleanInput = username.trim().toLowerCase();
-  const syntheticEmail = cleanInput.includes('@')
+  const cleanInput = rawInput.trim().toLowerCase();
+  const finalEmail = cleanInput.includes('@')
     ? cleanInput
     : `${cleanInput.replace(/[^a-z0-9._-]/g, '')}@edugame.local`;
-  const finalUsername = cleanInput;
 
   if (supabase) {
     try {
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: syntheticEmail,
+        email: finalEmail,
         password
       });
 
       if (authError) {
-        return res.status(400).json({ success: false, error: 'Tên đăng nhập hoặc mật khẩu không chính xác!' });
+        return res.status(400).json({ success: false, error: 'Email đăng nhập hoặc mật khẩu không chính xác!' });
       }
 
       const { data: profile } = await supabase
@@ -239,9 +236,9 @@ app.post('/api/v1/auth/login', async (req, res) => {
 
       const user = profile || {
         id: authData.user.id,
-        username: finalUsername,
-        full_name: authData.user.user_metadata.full_name || finalUsername,
-        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
+        email: finalEmail,
+        full_name: authData.user.user_metadata.full_name || finalEmail,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalEmail)}`,
         role: 'student',
         grade_level: 4,
         total_xp: 0,
@@ -254,7 +251,7 @@ app.post('/api/v1/auth/login', async (req, res) => {
         data: {
           user: {
             id: user.id,
-            username: user.username,
+            email: user.email,
             fullName: user.full_name,
             avatarUrl: user.avatar_url,
             role: user.role,
@@ -273,7 +270,7 @@ app.post('/api/v1/auth/login', async (req, res) => {
   }
 
   // Memory Fallback
-  const user = dbStore.users.find(u => u.username === finalUsername);
+  const user = dbStore.users.find(u => u.email === finalEmail);
   if (!user) {
     return res.status(400).json({ success: false, error: 'Tài khoản không tồn tại!' });
   }

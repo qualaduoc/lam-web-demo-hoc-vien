@@ -122,7 +122,7 @@ export function App() {
         )}
 
         {activeTab === 'admin' && (
-          (user.username === 'nguyenthanhduocathy@gmail.com' || user.role === 'admin') ? (
+          (user.email === 'nguyenthanhduocathy@gmail.com' || user.role === 'admin') ? (
             <AdminCmsView />
           ) : (
             <div className="py-20 text-center space-y-4 animate-in fade-in zoom-in duration-200">

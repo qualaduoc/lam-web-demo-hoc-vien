@@ -2,7 +2,7 @@ import type { Subject, Chapter, User, LeaderboardUser } from '../types/gameTypes
 
 export const CURRENT_USER: User = {
   id: 'u_student1',
-  username: 'hieu_lop4',
+  email: 'hieu_lop4@edugame.local',
   fullName: 'Nguyễn Trung Hiếu',
   avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hieu123',
   role: 'student',

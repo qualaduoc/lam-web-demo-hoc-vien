@@ -1,14 +1,14 @@
 -- =============================================================================
--- EDUGAME PRIMARY - SUPABASE DATABASE INITIALIZATION SCRIPT (AUTH & USERNAME FULL)
+-- EDUGAME PRIMARY - SUPABASE DATABASE INITIALIZATION SCRIPT (EMAIL-BASED AUTH)
 -- Safe to re-run in Supabase SQL Editor
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. BẢNG PROFILES (Lưu trữ thông tin học sinh đồng bộ với Supabase Auth)
+-- 1. BẢNG PROFILES (Đồng bộ với Supabase Auth bằng Email đăng nhập)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    username TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE NOT NULL,
     full_name TEXT NOT NULL,
     avatar_url TEXT DEFAULT 'https://api.dicebear.com/7.x/bottts/svg?seed=student',
     role TEXT DEFAULT 'student' CHECK (role IN ('admin', 'teacher', 'student')),
@@ -19,39 +19,39 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. TỰ ĐỘNG TẠO PROFILE KHI ĐĂNG KÝ USERNAME + MẬT KHẨU
+-- 2. TỰ ĐỘNG TẠO PROFILE KHI ĐĂNG KÝ EMAIL + MẬT KHẨU
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 DECLARE
-    input_username TEXT;
+    input_email TEXT;
     input_fullname TEXT;
     input_grade INT;
     user_role TEXT;
 BEGIN
-    input_username := COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1));
+    input_email := new.email;
     input_fullname := COALESCE(new.raw_user_meta_data->>'full_name', 'Học sinh mới');
     input_grade := COALESCE((new.raw_user_meta_data->>'grade_level')::INT, 4);
 
-    -- PHÂN QUYỀN ĐẶC BIỆT: Chỉ nguyenthanhduocathy@gmail.com mới là admin, còn lại là student
-    IF input_username = 'nguyenthanhduocathy@gmail.com' THEN
+    -- PHÂN QUYỀN ĐẶC BIỆT: Chỉ nguyenthanhduocathy@gmail.com mới là admin
+    IF input_email = 'nguyenthanhduocathy@gmail.com' THEN
         user_role := 'admin';
     ELSE
         user_role := 'student';
     END IF;
 
-    INSERT INTO public.profiles (id, username, full_name, avatar_url, role, grade_level, total_xp, streak_days)
+    INSERT INTO public.profiles (id, email, full_name, avatar_url, role, grade_level, total_xp, streak_days)
     VALUES (
         new.id,
-        input_username,
+        input_email,
         input_fullname,
-        'https://api.dicebear.com/7.x/bottts/svg?seed=' || input_username,
+        'https://api.dicebear.com/7.x/bottts/svg?seed=' || input_email,
         user_role,
         input_grade,
         0,
         1
     )
     ON CONFLICT (id) DO UPDATE SET
-        username = EXCLUDED.username,
+        email = EXCLUDED.email,
         full_name = EXCLUDED.full_name,
         role = EXCLUDED.role,
         grade_level = EXCLUDED.grade_level;

@@ -12,7 +12,7 @@ interface AuthModalProps {
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuccess }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [gradeLevel, setGradeLevel] = useState<number>(4);
@@ -26,7 +26,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     setErrorMsg('');
     setLoading(true);
 
-    const cleanInput = username.trim().toLowerCase();
+    const cleanInput = email.trim().toLowerCase();
     
     if (password.length < 6) {
       setErrorMsg('Mật khẩu phải có ít nhất 6 ký tự!');
@@ -35,17 +35,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       return;
     }
 
-    const syntheticEmail = cleanInput.includes('@')
+    // Đảm bảo định dạng email hợp lệ (nếu học sinh nhập tên thường, tự động thêm @edugame.local)
+    const finalEmail = cleanInput.includes('@')
       ? cleanInput
       : `${cleanInput.replace(/[^a-z0-9._-]/g, '')}@edugame.local`;
 
-    const finalUsername = cleanInput;
-
     try {
-      // Ưu tiên dùng Backend API đăng ký nếu là Register (Vì Backend sử dụng Service Role Key bỏ qua Email Rate Limit hoàn toàn)
+      // 1. TRƯỜNG HỢP REGISTER (Ưu tiên dùng Backend API để bỏ qua Rate Limit)
       if (mode === 'register') {
         const endpoint = '/api/v1/auth/register';
-        const payload = { username: finalUsername, password, fullName, gradeLevel };
+        const payload = { username: finalEmail, password, fullName, gradeLevel }; // Backend API nhận username và ánh xạ làm email đăng nhập
 
         let res = await fetch(endpoint, {
           method: 'POST',
@@ -70,27 +69,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         }
 
         if (res.ok && json.success) {
+          const studentUser: User = {
+            id: json.data.user.id,
+            email: json.data.user.email || json.data.user.username || finalEmail,
+            fullName: json.data.user.fullName,
+            avatarUrl: json.data.user.avatarUrl,
+            role: json.data.user.role,
+            gradeLevel: json.data.user.gradeLevel,
+            totalXp: json.data.user.totalXp,
+            streakDays: json.data.user.streakDays
+          };
+
           soundManager.playVictory();
-          onAuthSuccess(json.data.user, json.data.token || '');
+          onAuthSuccess(studentUser, json.data.token || '');
           onClose();
           return;
         }
 
-        // Nếu Backend trả lỗi cụ thể, hiển thị lỗi đó
         if (json && json.error) {
           throw new Error(json.error);
         }
       }
 
-      // 2. SUPABASE DIRECT AUTH (Dành cho Login hoặc Fallback Signup)
+      // 2. SUPABASE DIRECT AUTH (Dành cho Login hoặc Fallback)
       if (isSupabaseConfigured) {
         if (mode === 'register') {
           const { data: authData, error: authError } = await supabase.auth.signUp({
-            email: syntheticEmail,
+            email: finalEmail,
             password: password,
             options: {
               data: {
-                username: finalUsername,
+                username: finalEmail,
                 full_name: fullName,
                 grade_level: gradeLevel
               }
@@ -99,22 +108,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
           if (authError) {
             if (authError.message.includes('rate limit')) {
-              throw new Error('Supabase đang giới hạn tần suất đăng ký. Vui lòng thử lại sau ít phút hoặc tắt Confirm Email trong Supabase!');
+              throw new Error('Supabase đang giới hạn tần suất đăng ký. Vui lòng thử lại sau hoặc cấu hình Dashboard!');
             }
             throw new Error(authError.message);
           }
 
           const authUser = authData.user;
           if (!authUser) {
-            throw new Error('Đăng ký tài khoản thất bại!');
+            throw new Error('Đăng ký thất bại!');
           }
 
+          const profileRole = finalEmail === 'nguyenthanhduocathy@gmail.com' ? 'admin' : 'student';
           const profileData = {
             id: authUser.id,
-            username: finalUsername,
+            email: finalEmail,
             full_name: fullName,
-            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
-            role: 'student',
+            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalEmail)}`,
+            role: profileRole,
             grade_level: gradeLevel,
             total_xp: 0,
             streak_days: 1
@@ -124,10 +134,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
           const studentUser: User = {
             id: authUser.id,
-            username: finalUsername,
+            email: finalEmail,
             fullName: fullName,
             avatarUrl: profileData.avatar_url,
-            role: 'student',
+            role: profileRole,
             gradeLevel: gradeLevel,
             totalXp: 0,
             streakDays: 1
@@ -138,16 +148,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           onClose();
           return;
         } else {
-          // Đăng nhập Supabase Auth
+          // Đăng nhập
           const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-            email: syntheticEmail,
+            email: finalEmail,
             password: password
           });
 
           if (authError) {
-            throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác!');
+            throw new Error('Email đăng nhập hoặc mật khẩu không chính xác!');
           }
 
+          // Lấy profile từ public.profiles
           const { data: profile } = await supabase
             .from('profiles')
             .select('*')
@@ -156,9 +167,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
           const studentUser: User = {
             id: authData.user.id,
-            username: profile?.username || finalUsername,
-            fullName: profile?.full_name || authData.user.user_metadata?.full_name || finalUsername,
-            avatarUrl: profile?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
+            email: profile?.email || finalEmail,
+            fullName: profile?.full_name || authData.user.user_metadata?.full_name || finalEmail,
+            avatarUrl: profile?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalEmail)}`,
             role: profile?.role || 'student',
             gradeLevel: profile?.grade_level || 4,
             totalXp: profile?.total_xp || 0,
@@ -172,7 +183,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         }
       }
 
-      throw new Error('Thao tác đăng ký thất bại. Vui lòng thử lại!');
+      throw new Error('Thao tác thất bại. Vui lòng thử lại!');
     } catch (err: unknown) {
       soundManager.playWrong();
       if (err instanceof Error) {
@@ -237,13 +248,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         <form onSubmit={handleSubmit} className="space-y-4">
           
           <div className="space-y-1">
-            <label className="text-xs font-extrabold text-slate-700 uppercase">Tên đăng nhập hoặc Email:</label>
+            <label className="text-xs font-extrabold text-slate-700 uppercase">Email đăng nhập:</label>
             <input
               type="text"
               required
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="VD: toiladuoc hoặc email@gmail.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="VD: nguyenthanhduocathy@gmail.com"
               className="w-full p-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -270,7 +281,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="VD: Tôi Là Được"
+                  placeholder="VD: Nguyễn Trung Hiếu"
                   className="w-full p-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>

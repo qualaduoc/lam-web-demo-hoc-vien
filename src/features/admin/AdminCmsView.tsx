@@ -43,7 +43,7 @@ export const AdminCmsView: React.FC = () => {
       if (profilesData) {
         setStudents(profilesData.map(p => ({
           id: p.id,
-          username: p.username,
+          email: p.email,
           fullName: p.full_name,
           avatarUrl: p.avatar_url,
           role: p.role,
@@ -428,7 +428,7 @@ export const AdminCmsView: React.FC = () => {
                       <img src={st.avatarUrl} alt="" className="w-8 h-8 rounded-lg bg-purple-50" />
                       <span className="font-extrabold text-slate-800">{st.fullName}</span>
                     </td>
-                    <td className="p-3.5">@{st.username}</td>
+                    <td className="p-3.5">{st.email}</td>
                     <td className="p-3.5">
                       {editingStudentId === st.id ? (
                         <select 

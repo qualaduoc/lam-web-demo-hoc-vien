@@ -96,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Trophy className="w-4 h-4 text-amber-500" /> Bảng Vàng
           </button>
 
-          {(user.username === 'nguyenthanhduocathy@gmail.com' || user.role === 'admin') && (
+          {(user.email === 'nguyenthanhduocathy@gmail.com' || user.role === 'admin') && (
             <button
               onClick={() => { soundManager.playClick(); setActiveTab('admin'); }}
               className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all ${
@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
                 />
                 <div className="hidden lg:block text-left">
                   <p className="text-xs font-black text-slate-800 leading-tight">{user.fullName}</p>
-                  <p className="text-[10px] font-bold text-indigo-600">@{user.username}</p>
+                  <p className="text-[10px] font-bold text-indigo-600">{user.email}</p>
                 </div>
                 <button
                   onClick={() => { soundManager.playClick(); onLogout(); }}
