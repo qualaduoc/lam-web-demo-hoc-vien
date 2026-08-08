@@ -1,12 +1,12 @@
 -- =============================================================================
--- EDUGAME PRIMARY - SUPABASE DATABASE INITIALIZATION SCRIPT
--- Chạy script này trực tiếp trong "SQL Editor" trên Bảng điều khiển Supabase
+-- EDUGAME PRIMARY - SUPABASE DATABASE INITIALIZATION SCRIPT (IDEMPOTENT / RE-RUNNABLE)
+-- Safe to run multiple times in Supabase SQL Editor
 -- =============================================================================
 
 -- 1. KÍCH HOẠT EXTENSION UUID
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 2. TẠO BẢNG PROFILES (Liên kết với Supabase Auth users)
+-- 2. TẠO BẢNG PROFILES (Liên kết tự động với Supabase Auth users)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     username TEXT UNIQUE NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- 3. MA TRẬN SÁCH GIÁO KHOA (Curriculum Schema)
 CREATE TABLE IF NOT EXISTS public.subjects (
     id SERIAL PRIMARY KEY,
-    code TEXT UNIQUE NOT NULL, -- 'MATH', 'VIETNAMESE', 'ENGLISH', 'SCIENCE'
+    code TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     icon_name TEXT,
     color_theme TEXT DEFAULT 'blue',
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS public.lessons (
 -- 4. TRÒ CHƠI & CƠ CHẾ GAME
 CREATE TABLE IF NOT EXISTS public.game_types (
     id SERIAL PRIMARY KEY,
-    code TEXT UNIQUE NOT NULL, -- 'SPEED_RACE', 'BALANCE_SCALE', 'PIZZA_FRACTION'
+    code TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
     description TEXT
 );
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS public.games (
     time_limit_seconds INT DEFAULT 180
 );
 
--- 5. NGÂN HÀNG CÂU HỎI & ĐÁP ÁN (Question Bank)
+-- 5. NGÂN HÀNG CÂU HỎI & ĐÁP ÁN
 CREATE TABLE IF NOT EXISTS public.questions (
     id SERIAL PRIMARY KEY,
     lesson_id INT REFERENCES public.lessons(id) ON DELETE CASCADE,
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS public.question_options (
     explanation TEXT
 );
 
--- 6. PHIÊN CHƠI & TIẾN TRÌNH HỌC TẬP (Sessions & Badges)
+-- 6. PHIÊN CHƠI & TIẾN TRÌNH HỌC TẬP
 CREATE TABLE IF NOT EXISTS public.game_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -108,10 +108,7 @@ CREATE TABLE IF NOT EXISTS public.student_badges (
     unlocked_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- =============================================================================
--- 7. SUPABASE AUTOMATIC USER PROFILE CREATION TRIGGER
--- Tự động tạo record trong bảng profiles khi có tài khoản mới đăng ký qua Auth
--- =============================================================================
+-- 7. TỰ ĐỘNG TẠO PROFILE KHI HỌC SINH ĐĂNG KÝ TÀI KHOẢN
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
@@ -125,7 +122,8 @@ BEGIN
     4,
     0,
     1
-  );
+  )
+  ON CONFLICT (id) DO NOTHING;
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -135,9 +133,7 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- =============================================================================
--- 8. BẢO MẬT BẢNG ROW LEVEL SECURITY (RLS POLICIES)
--- =============================================================================
+-- 8. PHÂN QUYỀN BẢO MẬT ROW LEVEL SECURITY (RLS) - SAFE IDEMPOTENT
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.subjects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chapters ENABLE ROW LEVEL SECURITY;
@@ -149,7 +145,21 @@ ALTER TABLE public.question_options ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.game_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.student_badges ENABLE ROW LEVEL SECURITY;
 
--- Đọc dữ liệu công khai (Read-only for public)
+-- DROP EXISTING POLICIES TO PREVENT ERROR 42710
+DROP POLICY IF EXISTS "Public read subjects" ON public.subjects;
+DROP POLICY IF EXISTS "Public read chapters" ON public.chapters;
+DROP POLICY IF EXISTS "Public read lessons" ON public.lessons;
+DROP POLICY IF EXISTS "Public read game_types" ON public.game_types;
+DROP POLICY IF EXISTS "Public read games" ON public.games;
+DROP POLICY IF EXISTS "Public read questions" ON public.questions;
+DROP POLICY IF EXISTS "Public read question_options" ON public.question_options;
+DROP POLICY IF EXISTS "Public read profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Public read badges" ON public.student_badges;
+DROP POLICY IF EXISTS "Public read game_sessions" ON public.game_sessions;
+DROP POLICY IF EXISTS "User insert game_sessions" ON public.game_sessions;
+DROP POLICY IF EXISTS "User update profile" ON public.profiles;
+
+-- RE-CREATE IDEMPOTENT POLICIES
 CREATE POLICY "Public read subjects" ON public.subjects FOR SELECT USING (true);
 CREATE POLICY "Public read chapters" ON public.chapters FOR SELECT USING (true);
 CREATE POLICY "Public read lessons" ON public.lessons FOR SELECT USING (true);
@@ -160,18 +170,14 @@ CREATE POLICY "Public read question_options" ON public.question_options FOR SELE
 CREATE POLICY "Public read profiles" ON public.profiles FOR SELECT USING (true);
 CREATE POLICY "Public read badges" ON public.student_badges FOR SELECT USING (true);
 CREATE POLICY "Public read game_sessions" ON public.game_sessions FOR SELECT USING (true);
-
--- Cho phép người dùng ghi dữ liệu bản thân
 CREATE POLICY "User insert game_sessions" ON public.game_sessions FOR INSERT WITH CHECK (auth.uid() = user_id OR auth.uid() IS NULL);
 CREATE POLICY "User update profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
 
--- =============================================================================
--- 9. DỮ LIỆU MẪU SÁCH GIÁO KHOA (SEED DATA FOR SUPABASE)
--- =============================================================================
+-- 9. DỮ LIỆU MẪU SÁCH GIÁO KHOA TOÁN LỚP 4
 INSERT INTO public.subjects (id, code, name, icon_name, color_theme, description) VALUES
 (1, 'MATH', 'Toán Học', 'Calculator', 'blue', 'Số học, Phép tính, Phân số, Hình học và Đo lường SGK'),
-(2, 'VIETNAMESE', 'Tiếng Việt', 'BookOpen', 'red', 'Tập đọc, Luyện từ và câu, Chính tả, Tập làm văn SGK'),
-(3, 'ENGLISH', 'Tiếng Anh', 'Languages', 'amber', 'Vocabulary, Grammar, Phonics & Communication SGK'),
+(2, 'VIETNAMESE', 'Tiếng Việt', 'BookOpen', 'red', 'Tập đọc, Luyện từ và câu, Chính tả SGK'),
+(3, 'ENGLISH', 'Tiếng Anh', 'Languages', 'amber', 'Vocabulary, Grammar, Phonics SGK'),
 (4, 'SCIENCE', 'Tự Nhiên & Xã Hội', 'Compass', 'emerald', 'Khám phá tự nhiên, Khoa học, Lịch sử và Địa lý SGK')
 ON CONFLICT (id) DO NOTHING;
 
@@ -208,14 +214,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.question_options (question_id, option_text, is_correct, explanation) VALUES
 (3001, 'Hàng chục nghìn', TRUE, 'Số 8 đứng ở vị trí hàng chục nghìn'),
 (3001, 'Hàng nghìn', FALSE, 'Sai rồi, số 5 mới là hàng nghìn'),
-(3001, 'Hàng trăm', FALSE, 'Sai rồi, số 4 mới là hàng trăm'),
-
 (3002, '50.302', TRUE, '5 chục nghìn = 50.000, 3 trăm = 300, 2 đơn vị = 2 => 50.302'),
-(3002, '53.200', FALSE, 'Đây là 53 nghìn 2 trăm'),
-
 (3101, 'x = 2.300', TRUE, 'x = 3.500 - 1.200 = 2.300'),
-(3101, 'x = 4.700', FALSE, 'Chịu khó kiểm tra phép trừ'),
-
-(3201, '3/8', TRUE, 'Tử số 3, Mẫu số 8 => 3/8'),
-(3201, '8/3', FALSE, 'Nhầm tử số mẫu số rồi')
+(3201, '3/8', TRUE, 'Tử số 3, Mẫu số 8 => 3/8')
 ON CONFLICT DO NOTHING;
