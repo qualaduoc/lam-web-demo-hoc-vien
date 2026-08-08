@@ -141,12 +141,13 @@ app.post('/api/v1/auth/register', async (req, res) => {
       }
 
       // Tạo record public.profiles
+      const profileRole = finalUsername === 'nguyenthanhduocathy@gmail.com' ? 'admin' : 'student';
       const profileData = {
         id: authUser.id,
         username: finalUsername,
         full_name: fullName,
         avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
-        role: 'student',
+        role: profileRole,
         grade_level: parseInt(gradeLevel || '4'),
         total_xp: 0,
         streak_days: 1
@@ -163,7 +164,7 @@ app.post('/api/v1/auth/register', async (req, res) => {
             username: finalUsername,
             fullName: fullName,
             avatarUrl: profileData.avatar_url,
-            role: 'student',
+            role: profileRole,
             gradeLevel: parseInt(gradeLevel || '4'),
             totalXp: 0,
             streakDays: 1
@@ -184,12 +185,13 @@ app.post('/api/v1/auth/register', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Tên đăng nhập này đã tồn tại!' });
   }
 
+  const mockRole = finalUsername === 'nguyenthanhduocathy@gmail.com' ? 'admin' : 'student';
   const newUser = {
     id: 'u_' + Date.now(),
     username: finalUsername,
     fullName,
     avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
-    role: 'student',
+    role: mockRole,
     gradeLevel: parseInt(gradeLevel || '4'),
     totalXp: 0,
     streakDays: 1

@@ -26,10 +26,18 @@ DECLARE
     input_username TEXT;
     input_fullname TEXT;
     input_grade INT;
+    user_role TEXT;
 BEGIN
     input_username := COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1));
     input_fullname := COALESCE(new.raw_user_meta_data->>'full_name', 'Học sinh mới');
     input_grade := COALESCE((new.raw_user_meta_data->>'grade_level')::INT, 4);
+
+    -- PHÂN QUYỀN ĐẶC BIỆT: Chỉ nguyenthanhduocathy@gmail.com mới là admin, còn lại là student
+    IF input_username = 'nguyenthanhduocathy@gmail.com' THEN
+        user_role := 'admin';
+    ELSE
+        user_role := 'student';
+    END IF;
 
     INSERT INTO public.profiles (id, username, full_name, avatar_url, role, grade_level, total_xp, streak_days)
     VALUES (
@@ -37,7 +45,7 @@ BEGIN
         input_username,
         input_fullname,
         'https://api.dicebear.com/7.x/bottts/svg?seed=' || input_username,
-        'student',
+        user_role,
         input_grade,
         0,
         1
@@ -45,6 +53,7 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET
         username = EXCLUDED.username,
         full_name = EXCLUDED.full_name,
+        role = EXCLUDED.role,
         grade_level = EXCLUDED.grade_level;
 
     RETURN new;

@@ -122,7 +122,17 @@ export function App() {
         )}
 
         {activeTab === 'admin' && (
-          <AdminCmsView />
+          (user.username === 'nguyenthanhduocathy@gmail.com' || user.role === 'admin') ? (
+            <AdminCmsView />
+          ) : (
+            <div className="py-20 text-center space-y-4 animate-in fade-in zoom-in duration-200">
+              <div className="text-6xl">🔒</div>
+              <h3 className="text-2xl font-black text-rose-600">KHU VỰC HẠN CHẾ TRUY CẬP</h3>
+              <p className="text-sm font-bold text-slate-500 max-w-md mx-auto leading-relaxed">
+                Chỉ tài khoản Quản trị viên <strong className="text-indigo-600">nguyenthanhduocathy@gmail.com</strong> mới có quyền xem và chỉnh sửa dữ liệu hệ thống này.
+              </p>
+            </div>
+          )
         )}
       </main>
 

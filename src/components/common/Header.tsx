@@ -96,16 +96,18 @@ export const Header: React.FC<HeaderProps> = ({
             <Trophy className="w-4 h-4 text-amber-500" /> Bảng Vàng
           </button>
 
-          <button
-            onClick={() => { soundManager.playClick(); setActiveTab('admin'); }}
-            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all ${
-              activeTab === 'admin'
-                ? 'bg-white text-purple-600 shadow-sm border border-slate-200/80'
-                : 'text-slate-600 hover:text-purple-600 hover:bg-slate-200/50'
-            }`}
-          >
-            <Shield className="w-4 h-4 text-purple-500" /> Giáo Viên / CMS
-          </button>
+          {(user.username === 'nguyenthanhduocathy@gmail.com' || user.role === 'admin') && (
+            <button
+              onClick={() => { soundManager.playClick(); setActiveTab('admin'); }}
+              className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all ${
+                activeTab === 'admin'
+                  ? 'bg-white text-purple-600 shadow-sm border border-slate-200/80'
+                  : 'text-slate-600 hover:text-purple-600 hover:bg-slate-200/50'
+              }`}
+            >
+              <Shield className="w-4 h-4 text-purple-500" /> Giáo Viên / CMS
+            </button>
+          )}
         </nav>
 
         {/* STUDENT PROFILE & AUTH */}
