@@ -26,8 +26,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     setErrorMsg('');
     setLoading(true);
 
-    const cleanUsername = username.trim().toLowerCase();
-    const syntheticEmail = `${cleanUsername}@edugame.local`;
+    const cleanInput = username.trim().toLowerCase();
+    
+    if (password.length < 6) {
+      setErrorMsg('Mật khẩu phải có ít nhất 6 ký tự!');
+      setLoading(false);
+      soundManager.playWrong();
+      return;
+    }
+
+    // Xử lý thông minh: Nếu người dùng nhập Email chuẩn thì giữ nguyên, nếu nhập Username thì ghép đuôi @edugame.local
+    const syntheticEmail = cleanInput.includes('@')
+      ? cleanInput
+      : `${cleanInput.replace(/[^a-z0-9._-]/g, '')}@edugame.local`;
+
+    const finalUsername = cleanInput;
 
     try {
       // 1. TRƯỜNG HỢP SUPABASE TRỰC TIẾP TRÊN FRONTEND
@@ -37,11 +50,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           const { data: existingProfile } = await supabase
             .from('profiles')
             .select('username')
-            .eq('username', cleanUsername)
+            .eq('username', finalUsername)
             .maybeSingle();
 
           if (existingProfile) {
-            throw new Error('Tên đăng nhập này đã được sử dụng!');
+            throw new Error('Tên đăng nhập / Email này đã được sử dụng!');
           }
 
           // Đăng ký Supabase Auth
@@ -50,7 +63,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
             password: password,
             options: {
               data: {
-                username: cleanUsername,
+                username: finalUsername,
                 full_name: fullName,
                 grade_level: gradeLevel
               }
@@ -58,20 +71,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           });
 
           if (authError) {
-            throw new Error(authError.message === 'User already registered' ? 'Tên đăng nhập này đã được sử dụng!' : authError.message);
+            if (authError.message.includes('already registered')) {
+              throw new Error('Tài khoản này đã được sử dụng!');
+            }
+            if (authError.message.includes('invalid format')) {
+              throw new Error('Định dạng Tên đăng nhập / Email không hợp lệ!');
+            }
+            throw new Error(authError.message);
           }
 
           const authUser = authData.user;
           if (!authUser) {
-            throw new Error('Đăng ký tài khoản thất bại!');
+            throw new Error('Đăng ký tài khoản thất bại! Vui lòng thử lại.');
           }
 
           // Tạo record public.profiles
           const profileData = {
             id: authUser.id,
-            username: cleanUsername,
+            username: finalUsername,
             full_name: fullName,
-            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
             role: 'student',
             grade_level: gradeLevel,
             total_xp: 0,
@@ -82,7 +101,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
           const studentUser: User = {
             id: authUser.id,
-            username: cleanUsername,
+            username: finalUsername,
             fullName: fullName,
             avatarUrl: profileData.avatar_url,
             role: 'student',
@@ -115,9 +134,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
           const studentUser: User = {
             id: authData.user.id,
-            username: profile?.username || cleanUsername,
-            fullName: profile?.full_name || authData.user.user_metadata?.full_name || cleanUsername,
-            avatarUrl: profile?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+            username: profile?.username || finalUsername,
+            fullName: profile?.full_name || authData.user.user_metadata?.full_name || finalUsername,
+            avatarUrl: profile?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
             role: profile?.role || 'student',
             gradeLevel: profile?.grade_level || 4,
             totalXp: profile?.total_xp || 0,
@@ -131,11 +150,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         }
       }
 
-      // 2. TRƯỜNG HỢP BACKEND API FALLBACK (An toàn chống crash JSON)
+      // 2. TRƯỜNG HỢP BACKEND API FALLBACK
       const endpoint = mode === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/register';
       const payload = mode === 'login'
-        ? { username: cleanUsername, password }
-        : { username: cleanUsername, password, fullName, gradeLevel };
+        ? { username: finalUsername, password }
+        : { username: finalUsername, password, fullName, gradeLevel };
 
       let res = await fetch(endpoint, {
         method: 'POST',
@@ -143,7 +162,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         body: JSON.stringify(payload)
       });
 
-      // Nếu 404 proxy, thử endpoint URL trực tiếp
       if (res.status === 404) {
         res = await fetch(`http://localhost:3001${endpoint}`, {
           method: 'POST',
@@ -231,22 +249,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         <form onSubmit={handleSubmit} className="space-y-4">
           
           <div className="space-y-1">
-            <label className="text-xs font-extrabold text-slate-700 uppercase">Tên đăng nhập (Username):</label>
+            <label className="text-xs font-extrabold text-slate-700 uppercase">Tên đăng nhập hoặc Email:</label>
             <input
               type="text"
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="VD: toiladuoc"
+              placeholder="VD: toiladuoc hoặc email@gmail.com"
               className="w-full p-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-extrabold text-slate-700 uppercase">Mật khẩu:</label>
+            <label className="text-xs font-extrabold text-slate-700 uppercase">Mật khẩu (ít nhất 6 ký tự):</label>
             <input
               type="password"
               required
+              minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"

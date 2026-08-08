@@ -54,7 +54,7 @@ let dbStore = {
 // AUTH ENDPOINTS (SUPABASE USERNAME + PASSWORD AUTHENTICATION)
 // -----------------------------------------------------------------------------
 
-// 1. ĐĂNG KÝ TÀI KHOẢN HỌC SINH MỚI (USERNAME + MẬT KHẨU)
+// 1. ĐĂNG KÝ TÀI KHOẢN HỌC SINH MỚI
 app.post('/api/v1/auth/register', async (req, res) => {
   const { username, password, fullName, gradeLevel } = req.body;
 
@@ -62,29 +62,34 @@ app.post('/api/v1/auth/register', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ Tên đăng nhập, Mật khẩu và Họ tên!' });
   }
 
-  const cleanUsername = username.trim().toLowerCase();
-  const syntheticEmail = `${cleanUsername}@edugame.local`;
+  if (password.length < 6) {
+    return res.status(400).json({ success: false, error: 'Mật khẩu phải có ít nhất 6 ký tự!' });
+  }
+
+  const cleanInput = username.trim().toLowerCase();
+  const syntheticEmail = cleanInput.includes('@')
+    ? cleanInput
+    : `${cleanInput.replace(/[^a-z0-9._-]/g, '')}@edugame.local`;
+  const finalUsername = cleanInput;
 
   if (supabase) {
     try {
-      // Kiểm tra xem username đã tồn tại chưa
       const { data: existingUser } = await supabase
         .from('profiles')
         .select('username')
-        .eq('username', cleanUsername)
+        .eq('username', finalUsername)
         .maybeSingle();
 
       if (existingUser) {
-        return res.status(400).json({ success: false, error: 'Tên đăng nhập này đã được sử dụng!' });
+        return res.status(400).json({ success: false, error: 'Tên đăng nhập / Email này đã được sử dụng!' });
       }
 
-      // Đăng ký qua Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: syntheticEmail,
         password,
         options: {
           data: {
-            username: cleanUsername,
+            username: finalUsername,
             full_name: fullName,
             grade_level: parseInt(gradeLevel || '4')
           }
@@ -96,13 +101,11 @@ app.post('/api/v1/auth/register', async (req, res) => {
       }
 
       const user = authData.user;
-
-      // Đảm bảo record profile tồn tại trong bảng public.profiles
       const profileData = {
         id: user.id,
-        username: cleanUsername,
+        username: finalUsername,
         full_name: fullName,
-        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
         role: 'student',
         grade_level: parseInt(gradeLevel || '4'),
         total_xp: 0,
@@ -117,7 +120,7 @@ app.post('/api/v1/auth/register', async (req, res) => {
         data: {
           user: {
             id: user.id,
-            username: cleanUsername,
+            username: finalUsername,
             fullName: fullName,
             avatarUrl: profileData.avatar_url,
             role: 'student',
@@ -136,16 +139,16 @@ app.post('/api/v1/auth/register', async (req, res) => {
   }
 
   // Memory Fallback
-  const existing = dbStore.users.find(u => u.username === cleanUsername);
+  const existing = dbStore.users.find(u => u.username === finalUsername);
   if (existing) {
     return res.status(400).json({ success: false, error: 'Tên đăng nhập này đã tồn tại!' });
   }
 
   const newUser = {
     id: 'u_' + Date.now(),
-    username: cleanUsername,
+    username: finalUsername,
     fullName,
-    avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+    avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
     role: 'student',
     gradeLevel: parseInt(gradeLevel || '4'),
     totalXp: 0,
@@ -161,7 +164,7 @@ app.post('/api/v1/auth/register', async (req, res) => {
   });
 });
 
-// 2. ĐĂNG NHẬP (USERNAME + MẬT KHẨU)
+// 2. ĐĂNG NHẬP
 app.post('/api/v1/auth/login', async (req, res) => {
   const { username, password } = req.body;
 
@@ -169,8 +172,11 @@ app.post('/api/v1/auth/login', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Vui lòng nhập Tên đăng nhập và Mật khẩu!' });
   }
 
-  const cleanUsername = username.trim().toLowerCase();
-  const syntheticEmail = `${cleanUsername}@edugame.local`;
+  const cleanInput = username.trim().toLowerCase();
+  const syntheticEmail = cleanInput.includes('@')
+    ? cleanInput
+    : `${cleanInput.replace(/[^a-z0-9._-]/g, '')}@edugame.local`;
+  const finalUsername = cleanInput;
 
   if (supabase) {
     try {
@@ -183,18 +189,17 @@ app.post('/api/v1/auth/login', async (req, res) => {
         return res.status(400).json({ success: false, error: 'Tên đăng nhập hoặc mật khẩu không chính xác!' });
       }
 
-      // Lấy profile tương ứng từ bảng public.profiles
       const { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', authData.user.id)
-        .single();
+        .maybeSingle();
 
       const user = profile || {
         id: authData.user.id,
-        username: cleanUsername,
-        full_name: authData.user.user_metadata.full_name || cleanUsername,
-        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+        username: finalUsername,
+        full_name: authData.user.user_metadata.full_name || finalUsername,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
         role: 'student',
         grade_level: 4,
         total_xp: 0,
@@ -226,7 +231,7 @@ app.post('/api/v1/auth/login', async (req, res) => {
   }
 
   // Memory Fallback
-  const user = dbStore.users.find(u => u.username === cleanUsername);
+  const user = dbStore.users.find(u => u.username === finalUsername);
   if (!user) {
     return res.status(400).json({ success: false, error: 'Tài khoản không tồn tại!' });
   }
@@ -238,10 +243,7 @@ app.post('/api/v1/auth/login', async (req, res) => {
   });
 });
 
-// -----------------------------------------------------------------------------
 // REST API ENDPOINTS
-// -----------------------------------------------------------------------------
-
 app.get('/api/v1/subjects', async (req, res) => {
   if (supabase) {
     try {
