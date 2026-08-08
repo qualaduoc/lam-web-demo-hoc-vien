@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, LogIn, UserPlus, Sparkles, AlertCircle } from 'lucide-react';
 import type { User } from '../../types/gameTypes';
 import { soundManager } from '../../utils/soundEffects';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -25,19 +26,139 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     setErrorMsg('');
     setLoading(true);
 
+    const cleanUsername = username.trim().toLowerCase();
+    const syntheticEmail = `${cleanUsername}@edugame.local`;
+
     try {
+      // 1. TRƯỜNG HỢP SUPABASE TRỰC TIẾP TRÊN FRONTEND
+      if (isSupabaseConfigured) {
+        if (mode === 'register') {
+          // Kiểm tra xem username đã tồn tại trong public.profiles chưa
+          const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('username', cleanUsername)
+            .maybeSingle();
+
+          if (existingProfile) {
+            throw new Error('Tên đăng nhập này đã được sử dụng!');
+          }
+
+          // Đăng ký Supabase Auth
+          const { data: authData, error: authError } = await supabase.auth.signUp({
+            email: syntheticEmail,
+            password: password,
+            options: {
+              data: {
+                username: cleanUsername,
+                full_name: fullName,
+                grade_level: gradeLevel
+              }
+            }
+          });
+
+          if (authError) {
+            throw new Error(authError.message === 'User already registered' ? 'Tên đăng nhập này đã được sử dụng!' : authError.message);
+          }
+
+          const authUser = authData.user;
+          if (!authUser) {
+            throw new Error('Đăng ký tài khoản thất bại!');
+          }
+
+          // Tạo record public.profiles
+          const profileData = {
+            id: authUser.id,
+            username: cleanUsername,
+            full_name: fullName,
+            avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+            role: 'student',
+            grade_level: gradeLevel,
+            total_xp: 0,
+            streak_days: 1
+          };
+
+          await supabase.from('profiles').upsert(profileData);
+
+          const studentUser: User = {
+            id: authUser.id,
+            username: cleanUsername,
+            fullName: fullName,
+            avatarUrl: profileData.avatar_url,
+            role: 'student',
+            gradeLevel: gradeLevel,
+            totalXp: 0,
+            streakDays: 1
+          };
+
+          soundManager.playVictory();
+          onAuthSuccess(studentUser, authData.session?.access_token || 'supabase_token');
+          onClose();
+          return;
+        } else {
+          // Đăng nhập Supabase Auth
+          const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+            email: syntheticEmail,
+            password: password
+          });
+
+          if (authError) {
+            throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác!');
+          }
+
+          // Lấy profile từ public.profiles
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', authData.user.id)
+            .maybeSingle();
+
+          const studentUser: User = {
+            id: authData.user.id,
+            username: profile?.username || cleanUsername,
+            fullName: profile?.full_name || authData.user.user_metadata?.full_name || cleanUsername,
+            avatarUrl: profile?.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+            role: profile?.role || 'student',
+            gradeLevel: profile?.grade_level || 4,
+            totalXp: profile?.total_xp || 0,
+            streakDays: profile?.streak_days || 1
+          };
+
+          soundManager.playVictory();
+          onAuthSuccess(studentUser, authData.session?.access_token || 'supabase_token');
+          onClose();
+          return;
+        }
+      }
+
+      // 2. TRƯỜNG HỢP BACKEND API FALLBACK (An toàn chống crash JSON)
       const endpoint = mode === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/register';
       const payload = mode === 'login'
-        ? { username, password }
-        : { username, password, fullName, gradeLevel };
+        ? { username: cleanUsername, password }
+        : { username: cleanUsername, password, fullName, gradeLevel };
 
-      const res = await fetch(endpoint, {
+      let res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      const json = await res.json();
+      // Nếu 404 proxy, thử endpoint URL trực tiếp
+      if (res.status === 404) {
+        res = await fetch(`http://localhost:3001${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      }
+
+      const responseText = await res.text();
+      let json;
+      try {
+        json = JSON.parse(responseText);
+      } catch {
+        throw new Error('Máy chủ Backend phản hồi không đúng định dạng. Vui lòng thử lại!');
+      }
 
       if (!res.ok || !json.success) {
         throw new Error(json.error || 'Thao tác thất bại!');
@@ -116,7 +237,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="VD: hieu_lop4"
+              placeholder="VD: toiladuoc"
               className="w-full p-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
@@ -142,7 +263,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="VD: Nguyễn Trung Hiếu"
+                  placeholder="VD: Tôi Là Được"
                   className="w-full p-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
