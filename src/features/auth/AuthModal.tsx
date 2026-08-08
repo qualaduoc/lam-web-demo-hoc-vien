@@ -35,7 +35,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       return;
     }
 
-    // Xử lý thông minh: Nếu người dùng nhập Email chuẩn thì giữ nguyên, nếu nhập Username thì ghép đuôi @edugame.local
     const syntheticEmail = cleanInput.includes('@')
       ? cleanInput
       : `${cleanInput.replace(/[^a-z0-9._-]/g, '')}@edugame.local`;
@@ -43,21 +42,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     const finalUsername = cleanInput;
 
     try {
-      // 1. TRƯỜNG HỢP SUPABASE TRỰC TIẾP TRÊN FRONTEND
+      // Ưu tiên dùng Backend API đăng ký nếu là Register (Vì Backend sử dụng Service Role Key bỏ qua Email Rate Limit hoàn toàn)
+      if (mode === 'register') {
+        const endpoint = '/api/v1/auth/register';
+        const payload = { username: finalUsername, password, fullName, gradeLevel };
+
+        let res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.status === 404) {
+          res = await fetch(`http://localhost:3001${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
+
+        const responseText = await res.text();
+        let json;
+        try {
+          json = JSON.parse(responseText);
+        } catch {
+          throw new Error('Máy chủ Backend phản hồi không đúng định dạng!');
+        }
+
+        if (res.ok && json.success) {
+          soundManager.playVictory();
+          onAuthSuccess(json.data.user, json.data.token || '');
+          onClose();
+          return;
+        }
+
+        // Nếu Backend trả lỗi cụ thể, hiển thị lỗi đó
+        if (json && json.error) {
+          throw new Error(json.error);
+        }
+      }
+
+      // 2. SUPABASE DIRECT AUTH (Dành cho Login hoặc Fallback Signup)
       if (isSupabaseConfigured) {
         if (mode === 'register') {
-          // Kiểm tra xem username đã tồn tại trong public.profiles chưa
-          const { data: existingProfile } = await supabase
-            .from('profiles')
-            .select('username')
-            .eq('username', finalUsername)
-            .maybeSingle();
-
-          if (existingProfile) {
-            throw new Error('Tên đăng nhập / Email này đã được sử dụng!');
-          }
-
-          // Đăng ký Supabase Auth
           const { data: authData, error: authError } = await supabase.auth.signUp({
             email: syntheticEmail,
             password: password,
@@ -71,21 +98,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
           });
 
           if (authError) {
-            if (authError.message.includes('already registered')) {
-              throw new Error('Tài khoản này đã được sử dụng!');
-            }
-            if (authError.message.includes('invalid format')) {
-              throw new Error('Định dạng Tên đăng nhập / Email không hợp lệ!');
+            if (authError.message.includes('rate limit')) {
+              throw new Error('Supabase đang giới hạn tần suất đăng ký. Vui lòng thử lại sau ít phút hoặc tắt Confirm Email trong Supabase!');
             }
             throw new Error(authError.message);
           }
 
           const authUser = authData.user;
           if (!authUser) {
-            throw new Error('Đăng ký tài khoản thất bại! Vui lòng thử lại.');
+            throw new Error('Đăng ký tài khoản thất bại!');
           }
 
-          // Tạo record public.profiles
           const profileData = {
             id: authUser.id,
             username: finalUsername,
@@ -125,7 +148,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
             throw new Error('Tên đăng nhập hoặc mật khẩu không chính xác!');
           }
 
-          // Lấy profile từ public.profiles
           const { data: profile } = await supabase
             .from('profiles')
             .select('*')
@@ -150,41 +172,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         }
       }
 
-      // 2. TRƯỜNG HỢP BACKEND API FALLBACK
-      const endpoint = mode === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/register';
-      const payload = mode === 'login'
-        ? { username: finalUsername, password }
-        : { username: finalUsername, password, fullName, gradeLevel };
-
-      let res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (res.status === 404) {
-        res = await fetch(`http://localhost:3001${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      }
-
-      const responseText = await res.text();
-      let json;
-      try {
-        json = JSON.parse(responseText);
-      } catch {
-        throw new Error('Máy chủ Backend phản hồi không đúng định dạng. Vui lòng thử lại!');
-      }
-
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Thao tác thất bại!');
-      }
-
-      soundManager.playVictory();
-      onAuthSuccess(json.data.user, json.data.token || '');
-      onClose();
+      throw new Error('Thao tác đăng ký thất bại. Vui lòng thử lại!');
     } catch (err: unknown) {
       soundManager.playWrong();
       if (err instanceof Error) {
@@ -226,15 +214,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         <div className="flex bg-slate-100 p-1 rounded-2xl mb-6">
           <button
             onClick={() => { soundManager.playClick(); setMode('login'); setErrorMsg(''); }}
-            className={`flex-1 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${mode === 'login' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            className={`flex-1 py-2 rounded-xl text-xs font-black transition-all ${mode === 'login' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
           >
-            <LogIn className="w-4 h-4" /> Đăng Nhập
+            <LogIn className="w-4 h-4 inline mr-1" /> Đăng Nhập
           </button>
           <button
             onClick={() => { soundManager.playClick(); setMode('register'); setErrorMsg(''); }}
-            className={`flex-1 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 ${mode === 'register' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            className={`flex-1 py-2 rounded-xl text-xs font-black transition-all ${mode === 'register' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
           >
-            <UserPlus className="w-4 h-4" /> Đăng Ký
+            <UserPlus className="w-4 h-4 inline mr-1" /> Đăng Ký
           </button>
         </div>
 

@@ -15,18 +15,23 @@ app.use(express.json());
 
 // Supabase Client Setup
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabase = (supabaseUrl && supabaseKey && !supabaseUrl.includes('placeholder'))
-  ? createClient(supabaseUrl, supabaseKey)
+const supabase = (supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('placeholder'))
+  ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
+
+// Supabase Admin Client (dùng Service Role Key để BỎ QUA HOÀN TOÀN EMAIL RATE LIMIT)
+const supabaseAdmin = (supabaseUrl && supabaseServiceKey && !supabaseUrl.includes('placeholder'))
+  ? createClient(supabaseUrl, supabaseServiceKey, { auth: { autoRefreshToken: false, persistSession: false } })
+  : supabase;
 
 // Fallback In-Memory Database Store
 let dbStore = {
   users: [
     { id: 'u_admin', username: 'admin', fullName: 'Thầy Nguyễn Văn Được', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=TeacherDuoc', role: 'admin', gradeLevel: 4, totalXp: 1500, streakDays: 15 },
-    { id: 'u_student1', username: 'hieu_lop4', fullName: 'Nguyễn Trung Hiếu', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hieu123', role: 'student', gradeLevel: 4, totalXp: 850, streakDays: 7 },
-    { id: 'u_student2', username: 'lan_lop4', fullName: 'Trần Thị Mai Lan', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Lan456', role: 'student', gradeLevel: 4, totalXp: 1120, streakDays: 12 }
+    { id: 'u_student1', username: 'hieu_lop4', fullName: 'Nguyễn Trung Hiếu', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hieu123', role: 'student', gradeLevel: 4, totalXp: 850, streakDays: 7 }
   ],
   subjects: [
     { id: 1, code: 'MATH', name: 'Toán Học', icon: 'Calculator', colorTheme: 'blue', description: 'Số học, Phép tính, Phân số, Hình học và Đo lường SGK' },
@@ -51,10 +56,10 @@ let dbStore = {
 };
 
 // -----------------------------------------------------------------------------
-// AUTH ENDPOINTS (SUPABASE USERNAME + PASSWORD AUTHENTICATION)
+// AUTH ENDPOINTS WITH ADMIN RATE LIMIT BYPASS
 // -----------------------------------------------------------------------------
 
-// 1. ĐĂNG KÝ TÀI KHOẢN HỌC SINH MỚI
+// 1. ĐĂNG KÝ TÀI KHOẢN HỌC SINH MỚI (BỎ QUA RATE LIMIT)
 app.post('/api/v1/auth/register', async (req, res) => {
   const { username, password, fullName, gradeLevel } = req.body;
 
@@ -72,9 +77,9 @@ app.post('/api/v1/auth/register', async (req, res) => {
     : `${cleanInput.replace(/[^a-z0-9._-]/g, '')}@edugame.local`;
   const finalUsername = cleanInput;
 
-  if (supabase) {
+  if (supabaseAdmin) {
     try {
-      const { data: existingUser } = await supabase
+      const { data: existingUser } = await supabaseAdmin
         .from('profiles')
         .select('username')
         .eq('username', finalUsername)
@@ -84,25 +89,60 @@ app.post('/api/v1/auth/register', async (req, res) => {
         return res.status(400).json({ success: false, error: 'Tên đăng nhập / Email này đã được sử dụng!' });
       }
 
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: syntheticEmail,
-        password,
-        options: {
-          data: {
+      // Dùng Supabase Admin API để BỎ QUA RATE LIMIT & BỎ QUA GỬI EMAIL XÁC NHẬN
+      let authUser;
+      let sessionToken = null;
+
+      if (supabaseAdmin.auth && supabaseAdmin.auth.admin) {
+        const { data: adminAuth, error: adminError } = await supabaseAdmin.auth.admin.createUser({
+          email: syntheticEmail,
+          password: password,
+          email_confirm: true,
+          user_metadata: {
             username: finalUsername,
             full_name: fullName,
             grade_level: parseInt(gradeLevel || '4')
           }
-        }
-      });
+        });
 
-      if (authError) {
-        return res.status(400).json({ success: false, error: authError.message });
+        if (adminError) {
+          return res.status(400).json({ success: false, error: adminError.message });
+        }
+
+        authUser = adminAuth.user;
+
+        // Đăng nhập lấy session token
+        if (supabase) {
+          const { data: signInData } = await supabase.auth.signInWithPassword({
+            email: syntheticEmail,
+            password: password
+          });
+          sessionToken = signInData?.session?.access_token || null;
+        }
+      } else {
+        // Fallback SignUp thông thường
+        const { data: normalAuth, error: normalError } = await supabase.auth.signUp({
+          email: syntheticEmail,
+          password: password,
+          options: {
+            data: {
+              username: finalUsername,
+              full_name: fullName,
+              grade_level: parseInt(gradeLevel || '4')
+            }
+          }
+        });
+
+        if (normalError) {
+          return res.status(400).json({ success: false, error: normalError.message });
+        }
+        authUser = normalAuth.user;
+        sessionToken = normalAuth.session?.access_token || null;
       }
 
-      const user = authData.user;
+      // Tạo record public.profiles
       const profileData = {
-        id: user.id,
+        id: authUser.id,
         username: finalUsername,
         full_name: fullName,
         avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(finalUsername)}`,
@@ -112,14 +152,14 @@ app.post('/api/v1/auth/register', async (req, res) => {
         streak_days: 1
       };
 
-      await supabase.from('profiles').upsert(profileData);
+      await supabaseAdmin.from('profiles').upsert(profileData);
 
       return res.json({
         success: true,
         message: 'Đăng ký tài khoản thành công!',
         data: {
           user: {
-            id: user.id,
+            id: authUser.id,
             username: finalUsername,
             fullName: fullName,
             avatarUrl: profileData.avatar_url,
@@ -128,7 +168,7 @@ app.post('/api/v1/auth/register', async (req, res) => {
             totalXp: 0,
             streakDays: 1
           },
-          token: authData.session?.access_token || null
+          token: sessionToken
         }
       });
 
@@ -303,6 +343,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
     supabaseConnected: Boolean(supabase),
+    supabaseAdminConnected: Boolean(supabaseAdmin && supabaseAdmin.auth && supabaseAdmin.auth.admin),
     serverTime: new Date().toISOString()
   });
 });
@@ -310,4 +351,5 @@ app.get('/api/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`EduGame Backend API Server listening on http://localhost:${PORT}`);
   console.log(`Supabase Integration Status: ${supabase ? 'CONNECTED ✅' : 'NOT CONFIGURED'}`);
+  console.log(`Supabase Admin Bypass Status: ${supabaseAdmin && supabaseAdmin.auth && supabaseAdmin.auth.admin ? 'ACTIVE ✅ (Email Rate Limit Bypassed)' : 'INACTIVE'}`);
 });
