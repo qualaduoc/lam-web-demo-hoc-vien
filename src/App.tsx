@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Header } from './components/common/Header';
 import { Footer } from './components/common/Footer';
 import { SubjectHub } from './features/curriculum/SubjectHub';
@@ -6,15 +6,49 @@ import { AdventureMap } from './features/curriculum/AdventureMap';
 import { GameEngineContainer } from './features/games/GameEngineContainer';
 import { LeaderboardView } from './features/leaderboard/LeaderboardView';
 import { AdminCmsView } from './features/admin/AdminCmsView';
+import { AuthModal } from './features/auth/AuthModal';
 import { CURRENT_USER, SUBJECTS } from './config/curriculumData';
-import type { Subject, Game } from './types/gameTypes';
+import type { Subject, Game, User } from './types/gameTypes';
 
 export function App() {
-  const [user] = useState(CURRENT_USER);
+  const [user, setUser] = useState<User>(CURRENT_USER);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [selectedGrade, setSelectedGrade] = useState<number>(4);
   const [activeTab, setActiveTab] = useState<'home' | 'map' | 'game' | 'leaderboard' | 'admin'>('home');
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(SUBJECTS[0]);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('edugame_user');
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        setUser(parsed);
+        setIsLoggedIn(true);
+        setSelectedGrade(parsed.gradeLevel || 4);
+      } catch (e) {
+        console.error('Error loading saved session:', e);
+      }
+    }
+  }, []);
+
+  const handleAuthSuccess = (authUser: User, token: string) => {
+    setUser(authUser);
+    setIsLoggedIn(true);
+    setSelectedGrade(authUser.gradeLevel || 4);
+    localStorage.setItem('edugame_user', JSON.stringify(authUser));
+    if (token) {
+      localStorage.setItem('edugame_token', token);
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(CURRENT_USER);
+    setIsLoggedIn(false);
+    localStorage.removeItem('edugame_user');
+    localStorage.removeItem('edugame_token');
+  };
 
   const handleSelectSubject = (subject: Subject) => {
     setSelectedSubject(subject);
@@ -53,6 +87,9 @@ export function App() {
           setSelectedGrade(g);
           if (activeTab === 'game') setActiveTab('map');
         }}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onLogout={handleLogout}
+        isLoggedIn={isLoggedIn}
       />
 
       {/* MAIN CONTAINER */}
@@ -88,6 +125,13 @@ export function App() {
           <AdminCmsView />
         )}
       </main>
+
+      {/* AUTHENTICATION MODAL */}
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
 
       {/* FOOTER */}
       <Footer />

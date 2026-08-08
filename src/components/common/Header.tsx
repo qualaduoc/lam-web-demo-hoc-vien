@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, Trophy, Volume2, VolumeX, Shield, Home } from 'lucide-react';
+import { Sparkles, Trophy, Volume2, VolumeX, Shield, Home, LogIn, LogOut } from 'lucide-react';
 import type { User } from '../../types/gameTypes';
 import { soundManager } from '../../utils/soundEffects';
 
@@ -9,6 +9,9 @@ interface HeaderProps {
   setActiveTab: (tab: 'home' | 'map' | 'leaderboard' | 'admin') => void;
   selectedGrade: number;
   setSelectedGrade: (grade: number) => void;
+  onOpenAuth: () => void;
+  onLogout: () => void;
+  isLoggedIn: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -16,7 +19,10 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
   selectedGrade,
-  setSelectedGrade
+  setSelectedGrade,
+  onOpenAuth,
+  onLogout,
+  isLoggedIn
 }) => {
   const [muted, setMuted] = React.useState(soundManager.getMuted());
 
@@ -102,7 +108,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </nav>
 
-        {/* STUDENT PROFILE & STATS */}
+        {/* STUDENT PROFILE & AUTH */}
         <div className="flex items-center gap-3">
           {/* MUTE AUDIO SOUND */}
           <button
@@ -124,17 +130,37 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="text-xs font-black text-indigo-700">{user.totalXp} XP</span>
           </div>
 
-          {/* AVATAR */}
+          {/* AVATAR OR AUTH BUTTON */}
           <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
-            <img
-              src={user.avatarUrl}
-              alt={user.fullName}
-              className="w-10 h-10 rounded-xl bg-purple-100 border-2 border-purple-300 shadow-xs"
-            />
-            <div className="hidden lg:block text-left">
-              <p className="text-xs font-black text-slate-800 leading-tight">{user.fullName}</p>
-              <p className="text-[10px] font-bold text-slate-500">Lớp {selectedGrade} • Học sinh</p>
-            </div>
+            {!isLoggedIn ? (
+              <button
+                onClick={() => { soundManager.playClick(); onOpenAuth(); }}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-md flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <LogIn className="w-4 h-4" /> Đăng Nhập
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <img
+                  src={user.avatarUrl}
+                  alt={user.fullName}
+                  className="w-10 h-10 rounded-xl bg-purple-100 border-2 border-purple-300 shadow-xs cursor-pointer"
+                  onClick={onOpenAuth}
+                  title="Thông tin tài khoản"
+                />
+                <div className="hidden lg:block text-left">
+                  <p className="text-xs font-black text-slate-800 leading-tight">{user.fullName}</p>
+                  <p className="text-[10px] font-bold text-indigo-600">@{user.username}</p>
+                </div>
+                <button
+                  onClick={() => { soundManager.playClick(); onLogout(); }}
+                  className="w-8 h-8 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center transition-colors border border-rose-200 ml-1"
+                  title="Đăng xuất"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

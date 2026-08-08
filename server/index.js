@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 
-// Load environment variables from .env.local or .env
+// Load environment variables
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Supabase Client Setup on Backend
+// Supabase Client Setup
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
 
@@ -26,8 +26,7 @@ let dbStore = {
   users: [
     { id: 'u_admin', username: 'admin', fullName: 'Thầy Nguyễn Văn Được', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=TeacherDuoc', role: 'admin', gradeLevel: 4, totalXp: 1500, streakDays: 15 },
     { id: 'u_student1', username: 'hieu_lop4', fullName: 'Nguyễn Trung Hiếu', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hieu123', role: 'student', gradeLevel: 4, totalXp: 850, streakDays: 7 },
-    { id: 'u_student2', username: 'lan_lop4', fullName: 'Trần Thị Mai Lan', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Lan456', role: 'student', gradeLevel: 4, totalXp: 1120, streakDays: 12 },
-    { id: 'u_student3', username: 'minh_lop4', fullName: 'Phạm Quang Minh', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Minh789', role: 'student', gradeLevel: 4, totalXp: 640, streakDays: 4 }
+    { id: 'u_student2', username: 'lan_lop4', fullName: 'Trần Thị Mai Lan', avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=Lan456', role: 'student', gradeLevel: 4, totalXp: 1120, streakDays: 12 }
   ],
   subjects: [
     { id: 1, code: 'MATH', name: 'Toán Học', icon: 'Calculator', colorTheme: 'blue', description: 'Số học, Phép tính, Phân số, Hình học và Đo lường SGK' },
@@ -48,34 +47,201 @@ let dbStore = {
     { id: 2001, lessonId: 1001, typeCode: 'SPEED_RACE', title: 'Trò 1 - Săn Kho Báu Số Tự Nhiên', description: 'Chạy đua vượt chướng ngại vật, nhận diện hàng chục nghìn, so sánh số', difficulty: 'MEDIUM', maxScore: 100, timeLimit: 180 },
     { id: 2002, lessonId: 1002, typeCode: 'BALANCE_SCALE', title: 'Trò 2 - Cân Thăng Bằng Phép Tính', description: 'Kéo thả biểu thức toán học giữ đòn cân cân bằng đúng', difficulty: 'MEDIUM', maxScore: 100, timeLimit: 180 },
     { id: 2003, lessonId: 1003, typeCode: 'PIZZA_FRACTION', title: 'Trò 3 - Bánh Pizza Phân Số Kỳ Diệu', description: 'Cắt bánh Pizza & Ghép thẻ phân số tương ứng trực quan', difficulty: 'EASY', maxScore: 100, timeLimit: 180 }
-  ],
-  questions: [
-    {
-      id: 3001, gameId: 2001, content: 'Trong số 85.421, chữ số 8 thuộc hàng nào?',
-      options: [
-        { id: 1, text: 'Hàng chục nghìn', isCorrect: true, explanation: 'Số 8 đứng ở vị trí hàng chục nghìn trong lớp nghìn' },
-        { id: 2, text: 'Hàng nghìn', isCorrect: false, explanation: 'Số 5 mới là hàng nghìn' },
-        { id: 3, text: 'Hàng trăm', isCorrect: false, explanation: 'Số 4 mới là hàng trăm' }
-      ]
-    },
-    {
-      id: 3101, gameId: 2002, content: 'Tìm x sao cho đòn cân thăng bằng: x + 1.200 = 3.500',
-      options: [
-        { id: 1, text: 'x = 2.300', isCorrect: true, explanation: 'x = 3.500 - 1.200 = 2.300' },
-        { id: 2, text: 'x = 4.700', isCorrect: false, explanation: 'Tính lại phép trừ' }
-      ]
-    },
-    {
-      id: 3201, gameId: 2003, content: 'Bánh Pizza chia 8 miếng bằng nhau. Nam ăn 3 miếng. Phân số chỉ số miếng bánh Nam đã ăn là:',
-      options: [
-        { id: 1, text: '3/8', isCorrect: true, explanation: 'Tử số là số miếng đã ăn (3), Mẫu số là tổng miếng bánh (8)' },
-        { id: 2, text: '8/3', isCorrect: false, explanation: 'Nhầm lẫn giữa tử số và mẫu số rồi' }
-      ]
-    }
   ]
 };
 
-// REST API ENDPOINTS WITH SUPABASE QUERY SUPPORT
+// -----------------------------------------------------------------------------
+// AUTH ENDPOINTS (SUPABASE USERNAME + PASSWORD AUTHENTICATION)
+// -----------------------------------------------------------------------------
+
+// 1. ĐĂNG KÝ TÀI KHOẢN HỌC SINH MỚI (USERNAME + MẬT KHẨU)
+app.post('/api/v1/auth/register', async (req, res) => {
+  const { username, password, fullName, gradeLevel } = req.body;
+
+  if (!username || !password || !fullName) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ Tên đăng nhập, Mật khẩu và Họ tên!' });
+  }
+
+  const cleanUsername = username.trim().toLowerCase();
+  const syntheticEmail = `${cleanUsername}@edugame.local`;
+
+  if (supabase) {
+    try {
+      // Kiểm tra xem username đã tồn tại chưa
+      const { data: existingUser } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('username', cleanUsername)
+        .maybeSingle();
+
+      if (existingUser) {
+        return res.status(400).json({ success: false, error: 'Tên đăng nhập này đã được sử dụng!' });
+      }
+
+      // Đăng ký qua Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: syntheticEmail,
+        password,
+        options: {
+          data: {
+            username: cleanUsername,
+            full_name: fullName,
+            grade_level: parseInt(gradeLevel || '4')
+          }
+        }
+      });
+
+      if (authError) {
+        return res.status(400).json({ success: false, error: authError.message });
+      }
+
+      const user = authData.user;
+
+      // Đảm bảo record profile tồn tại trong bảng public.profiles
+      const profileData = {
+        id: user.id,
+        username: cleanUsername,
+        full_name: fullName,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+        role: 'student',
+        grade_level: parseInt(gradeLevel || '4'),
+        total_xp: 0,
+        streak_days: 1
+      };
+
+      await supabase.from('profiles').upsert(profileData);
+
+      return res.json({
+        success: true,
+        message: 'Đăng ký tài khoản thành công!',
+        data: {
+          user: {
+            id: user.id,
+            username: cleanUsername,
+            fullName: fullName,
+            avatarUrl: profileData.avatar_url,
+            role: 'student',
+            gradeLevel: parseInt(gradeLevel || '4'),
+            totalXp: 0,
+            streakDays: 1
+          },
+          token: authData.session?.access_token || null
+        }
+      });
+
+    } catch (e) {
+      console.error('Supabase Auth Register Error:', e);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi đăng ký tài khoản' });
+    }
+  }
+
+  // Memory Fallback
+  const existing = dbStore.users.find(u => u.username === cleanUsername);
+  if (existing) {
+    return res.status(400).json({ success: false, error: 'Tên đăng nhập này đã tồn tại!' });
+  }
+
+  const newUser = {
+    id: 'u_' + Date.now(),
+    username: cleanUsername,
+    fullName,
+    avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+    role: 'student',
+    gradeLevel: parseInt(gradeLevel || '4'),
+    totalXp: 0,
+    streakDays: 1
+  };
+
+  dbStore.users.push(newUser);
+
+  res.json({
+    success: true,
+    message: 'Đăng ký tài khoản thành công!',
+    data: { user: newUser, token: 'mock_token_' + Date.now() }
+  });
+});
+
+// 2. ĐĂNG NHẬP (USERNAME + MẬT KHẨU)
+app.post('/api/v1/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập Tên đăng nhập và Mật khẩu!' });
+  }
+
+  const cleanUsername = username.trim().toLowerCase();
+  const syntheticEmail = `${cleanUsername}@edugame.local`;
+
+  if (supabase) {
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: syntheticEmail,
+        password
+      });
+
+      if (authError) {
+        return res.status(400).json({ success: false, error: 'Tên đăng nhập hoặc mật khẩu không chính xác!' });
+      }
+
+      // Lấy profile tương ứng từ bảng public.profiles
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+
+      const user = profile || {
+        id: authData.user.id,
+        username: cleanUsername,
+        full_name: authData.user.user_metadata.full_name || cleanUsername,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanUsername}`,
+        role: 'student',
+        grade_level: 4,
+        total_xp: 0,
+        streak_days: 1
+      };
+
+      return res.json({
+        success: true,
+        message: 'Đăng nhập thành công!',
+        data: {
+          user: {
+            id: user.id,
+            username: user.username,
+            fullName: user.full_name,
+            avatarUrl: user.avatar_url,
+            role: user.role,
+            gradeLevel: user.grade_level,
+            totalXp: user.total_xp,
+            streakDays: user.streak_days
+          },
+          token: authData.session?.access_token || null
+        }
+      });
+
+    } catch (e) {
+      console.error('Supabase Auth Login Error:', e);
+      return res.status(500).json({ success: false, error: 'Lỗi đăng nhập hệ thống' });
+    }
+  }
+
+  // Memory Fallback
+  const user = dbStore.users.find(u => u.username === cleanUsername);
+  if (!user) {
+    return res.status(400).json({ success: false, error: 'Tài khoản không tồn tại!' });
+  }
+
+  res.json({
+    success: true,
+    message: 'Đăng nhập thành công!',
+    data: { user, token: 'mock_token_' + Date.now() }
+  });
+});
+
+// -----------------------------------------------------------------------------
+// REST API ENDPOINTS
+// -----------------------------------------------------------------------------
+
 app.get('/api/v1/subjects', async (req, res) => {
   if (supabase) {
     try {
@@ -88,38 +254,6 @@ app.get('/api/v1/subjects', async (req, res) => {
     }
   }
   res.json({ success: true, data: dbStore.subjects, source: 'memory' });
-});
-
-app.get('/api/v1/curriculum', async (req, res) => {
-  const grade = parseInt(req.query.grade || '4');
-  const subjectId = parseInt(req.query.subjectId || '1');
-
-  if (supabase) {
-    try {
-      const { data: chapters, error } = await supabase
-        .from('chapters')
-        .select('*, lessons(*, games(*))')
-        .eq('subject_id', subjectId)
-        .eq('grade_level', grade);
-
-      if (!error && chapters && chapters.length > 0) {
-        return res.json({ success: true, data: chapters, source: 'supabase' });
-      }
-    } catch (e) {
-      console.error('Supabase Query Error:', e);
-    }
-  }
-
-  const filteredChapters = dbStore.chapters.filter(c => c.subjectId === subjectId && c.gradeLevel === grade);
-  const mapData = filteredChapters.map(ch => {
-    const chapterLessons = dbStore.lessons.filter(l => l.chapterId === ch.id).map(l => {
-      const lessonGames = dbStore.games.filter(g => g.lessonId === l.id);
-      return { ...l, games: lessonGames };
-    });
-    return { ...ch, lessons: chapterLessons };
-  });
-
-  res.json({ success: true, data: mapData, source: 'memory' });
 });
 
 app.get('/api/v1/leaderboard', async (req, res) => {
@@ -167,12 +301,11 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
     supabaseConnected: Boolean(supabase),
-    supabaseUrl: supabaseUrl ? supabaseUrl.replace(/https:\/\/(.*)\.supabase\.co/, '$1') : null,
     serverTime: new Date().toISOString()
   });
 });
 
 app.listen(PORT, () => {
   console.log(`EduGame Backend API Server listening on http://localhost:${PORT}`);
-  console.log(`Supabase Integration Status: ${supabase ? 'CONNECTED ✅ (' + supabaseUrl + ')' : 'NOT CONFIGURED'}`);
+  console.log(`Supabase Integration Status: ${supabase ? 'CONNECTED ✅' : 'NOT CONFIGURED'}`);
 });
